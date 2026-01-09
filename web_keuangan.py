@@ -116,7 +116,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- 6. TAMPILAN UTAMA ---
-st.title("💸 Dashboard Keuangan Multi-Dompet")
+st.title("💸 LAPORAN KEUANGAN PPGI")
 
 # Sinkronisasi pilihan dompet agar tidak "mental"
 idx_def = st.session_state.list_dompet.index(st.session_state.dompet_aktif) if st.session_state.dompet_aktif in st.session_state.list_dompet else 0
@@ -175,3 +175,4 @@ if not df_view.empty:
         if c7.button("🗑️", key=f"del_{i}"):
             df_raw.drop(i).to_excel(DB_FILE, index=False)
             st.rerun()
+
