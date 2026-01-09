@@ -97,7 +97,7 @@ def generate_pdf(dataframe, custom_title):
 
 # --- TAMPILAN WEB ---
 df = load_data()
-st.title("💰 Finance Dashboard Pro")
+st.title("💰 LAPORAN ADMINISTRASI KEUANGAN PPGI")
 
 with st.sidebar:
     st.header("Input Transaksi")
@@ -144,4 +144,5 @@ if not df.empty:
         c4.write(r["Metode"]); c5.write(f"{r['Jumlah']:,}"); c6.write(f"**{r['Saldo']:,}**")
         if c7.button("🗑️", key=f"d_{i}"):
             df.drop(i).drop(columns=['Saldo'], errors='ignore').to_excel(DB_FILE, index=False)
+
             st.rerun()
