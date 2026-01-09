@@ -10,21 +10,22 @@ from reportlab.lib.enums import TA_CENTER
 import io
 
 # --- KONFIGURASI ---
-st.set_page_config(page_title="Finance System v4.1", layout="wide")
-DB_FILE = "data_keuangan_pro.xlsx"
+st.set_page_config(page_title="Finance Multi-Wallet Pro", layout="wide")
+DB_FILE = "data_keuangan_multi_wallet.xlsx"
 
 # --- FUNGSI LOAD DATA ---
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_excel(DB_FILE)
-            if "Kategori" not in df.columns:
-                df["Kategori"] = "Kas"
+            # Pastikan kolom Dompet ada
+            if "Dompet" not in df.columns:
+                df["Dompet"] = "Kas Utama"
             df["Jumlah"] = pd.to_numeric(df["Jumlah"], errors='coerce').fillna(0).astype(int)
             return df
         except:
-            return pd.DataFrame(columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Kategori", "Jumlah"])
-    return pd.DataFrame(columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Kategori", "Jumlah"])
+            return pd.DataFrame(columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Dompet", "Jumlah"])
+    return pd.DataFrame(columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Dompet", "Jumlah"])
 
 # --- FUNGSI HITUNG SALDO BERJALAN ---
 def calculate_with_balance(df_filtered):
@@ -40,36 +41,26 @@ def calculate_with_balance(df_filtered):
     return df_res
 
 # --- FUNGSI GENERATE PDF ---
-def generate_pdf(dataframe, custom_title, kategori_nama):
+def generate_pdf(dataframe, custom_title, dompet_nama):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     elements = []
     styles = getSampleStyleSheet()
     
-    # Header PDF
     elements.append(Paragraph(f"<b>{custom_title.upper()}</b>", styles['Title']))
-    elements.append(Paragraph(f"<center>Kategori Laporan: {kategori_nama}</center>", styles['Normal']))
+    elements.append(Paragraph(f"<center>Sumber Dana / Dompet: {dompet_nama}</center>", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    # Data Tabel
     data_tabel = [["Tanggal", "Keterangan", "Tipe", "Metode", "Jumlah", "Saldo"]]
     for _, row in dataframe.iterrows():
-        data_tabel.append([
-            str(row['Tanggal']), 
-            row['Keterangan'], 
-            row['Tipe'], 
-            row['Metode'], 
-            f"{int(row['Jumlah']):,}", 
-            f"{int(row['Saldo']):,}"
-        ])
+        data_tabel.append([str(row['Tanggal']), row['Keterangan'], row['Tipe'], row['Metode'], f"{int(row['Jumlah']):,}", f"{int(row['Saldo']):,}"])
     
-    # Perhitungan Total
     t_in = dataframe[dataframe["Tipe"]=="Pemasukan"]["Jumlah"].sum()
     t_out = dataframe[dataframe["Tipe"]=="Pengeluaran"]["Jumlah"].sum()
     
     data_tabel.append(["", "TOTAL MASUK", "", "", f"{int(t_in):,}", ""])
     data_tabel.append(["", "TOTAL KELUAR", "", "", f"{int(t_out):,}", ""])
-    data_tabel.append(["", f"SALDO AKHIR {kategori_nama.upper()}", "", "", "", f"{int(t_in-t_out):,}"])
+    data_tabel.append(["", f"SALDO AKHIR {dompet_nama.upper()}", "", "", "", f"{int(t_in-t_out):,}"])
 
     t = Table(data_tabel, colWidths=[65, 160, 65, 65, 75, 75])
     t.setStyle(TableStyle([
@@ -83,18 +74,14 @@ def generate_pdf(dataframe, custom_title, kategori_nama):
     ]))
     elements.append(t)
     
-    # Bagian Tanda Tangan
     elements.append(Spacer(1, 40))
     style_ttd = ParagraphStyle(name='TTD', fontSize=10, alignment=TA_CENTER)
     tgl_skrg = datetime.now().strftime("%d %B %Y")
     elements.append(Paragraph(f"Jakarta, {tgl_skrg}", style_ttd))
     elements.append(Spacer(1, 15))
-    
-    data_ttd = [
-        [Paragraph("Yang Menyerahkan,", style_ttd), Paragraph("Yang Menerima,", style_ttd)],
-        ["", ""], [""], [""],
-        [Paragraph("<b>(Yaumil Mubarrok)</b>", style_ttd), Paragraph("<b>(Ustadzah Sofwatunnufus, S.E)</b>", style_ttd)]
-    ]
+    data_ttd = [[Paragraph("Yang Menyerahkan,", style_ttd), Paragraph("Yang Menerima,", style_ttd)],
+                ["", ""], [""], [""],
+                [Paragraph("<b>(Yaumil Mubarrok)</b>", style_ttd), Paragraph("<b>(Ustadzah Sofwatunnufus, S.E)</b>", style_ttd)]]
     elements.append(Table(data_ttd, colWidths=[250, 250]))
     doc.build(elements)
     buffer.seek(0)
@@ -103,87 +90,88 @@ def generate_pdf(dataframe, custom_title, kategori_nama):
 # --- LOGIKA APLIKASI ---
 df_raw = load_data()
 
-st.title("💰 Finance System (Multi-Kategori)")
+# Ambil daftar dompet yang sudah ada di database
+list_dompet_existing = df_raw["Dompet"].unique().tolist() if not df_raw.empty else ["Kas Utama"]
+if "Kas Utama" not in list_dompet_existing:
+    list_dompet_existing.insert(0, "Kas Utama")
 
-# 1. Filter Kategori
-view_kategori = st.radio("Pilih Tampilan Laporan:", ["Kas", "Acara"], horizontal=True)
+st.title("💰 Finance Multi-Wallet System")
 
-# Filter dan Hitung Saldo
-df_filtered = df_raw[df_raw["Kategori"] == view_kategori]
-df_display = calculate_with_balance(df_filtered)
-
-# Sidebar Input
+# 1. SIDEBAR: INPUT & MANAJEMEN DOMPET
 with st.sidebar:
-    st.header("Tambah Data Baru")
-    with st.form("input_form", clear_on_submit=True):
+    st.header("⚙️ Pengaturan Dompet")
+    dompet_baru = st.text_input("Tambah Nama Acara/Dompet Baru:")
+    if st.button("Tambah Dompet"):
+        if dompet_baru and dompet_baru not in list_dompet_existing:
+            list_dompet_existing.append(dompet_baru)
+            st.success(f"Dompet '{dompet_baru}' siap digunakan!")
+        else:
+            st.warning("Nama sudah ada atau kosong")
+
+    st.divider()
+    st.header("📝 Tambah Transaksi")
+    with st.form("form_input", clear_on_submit=True):
         tgl = st.date_input("Tanggal", datetime.now())
-        kat_input = st.selectbox("Simpan ke Kategori:", ["Kas", "Acara"])
+        dompet_pilihan = st.selectbox("Pilih Dompet:", list_dompet_existing)
         ket = st.text_input("Keterangan")
         tipe = st.selectbox("Tipe", ["Pemasukan", "Pengeluaran"])
         metode = st.selectbox("Metode", ["Cash", "Transfer"])
         jml = st.number_input("Jumlah (Rp)", min_value=0, step=1000)
         
-        if st.form_submit_button("Simpan"):
+        if st.form_submit_button("Simpan Transaksi"):
             if ket:
-                new_row = pd.DataFrame([[tgl.strftime("%Y-%m-%d"), ket, tipe, metode, kat_input, int(jml)]], 
-                                       columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Kategori", "Jumlah"])
-                df_to_save = pd.concat([df_raw, new_row], ignore_index=True)
+                new_data = pd.DataFrame([[tgl.strftime("%Y-%m-%d"), ket, tipe, metode, dompet_pilihan, int(jml)]], 
+                                       columns=["Tanggal", "Keterangan", "Tipe", "Metode", "Dompet", "Jumlah"])
+                df_to_save = pd.concat([df_raw, new_data], ignore_index=True)
                 df_to_save.to_excel(DB_FILE, index=False)
-                st.success("Data Berhasil Disimpan!")
+                st.success(f"Tersimpan di {dompet_pilihan}!")
                 st.rerun()
 
-# Dashboard Metrics
+# 2. FILTER TAMPILAN (Dinamis sesuai dompet yang ada)
+st.subheader("🔍 Pilih Dompet untuk Dilihat")
+view_pilihan = st.selectbox("Lihat Laporan Dompet:", list_dompet_existing)
+
+df_filtered = df_raw[df_raw["Dompet"] == view_pilihan]
+df_display = calculate_with_balance(df_filtered)
+
+# 3. DASHBOARD METRICS
 t_in = df_display[df_display["Tipe"]=="Pemasukan"]["Jumlah"].sum()
 t_out = df_display[df_display["Tipe"]=="Pengeluaran"]["Jumlah"].sum()
 
-st.subheader(f"📊 Ringkasan Saldo {view_kategori}")
 c1, c2, c3 = st.columns(3)
-c1.metric("Pemasukan", f"Rp {t_in:,}")
-c2.metric("Pengeluaran", f"Rp {t_out:,}", delta_color="inverse")
-c3.metric("Saldo Akhir", f"Rp {t_in - t_out:,}")
+c1.metric(f"Total Masuk", f"Rp {t_in:,}")
+c2.metric(f"Total Keluar", f"Rp {t_out:,}", delta_color="inverse")
+c3.metric(f"Saldo Akhir {view_pilihan}", f"Rp {t_in - t_out:,}")
 
 st.divider()
 
-# --- BAGIAN PDF (DIPERBAIKI) ---
-st.subheader(f"🖨️ Cetak Laporan {view_kategori}")
+# 4. CETAK PDF
 if not df_display.empty:
+    st.subheader(f"🖨️ Cetak Laporan {view_pilihan}")
     col_pdf1, col_pdf2 = st.columns([3, 1])
     with col_pdf1:
-        judul_pdf = st.text_input("Judul di PDF:", f"Laporan Keuangan {view_kategori}", key="judul_pdf")
+        judul_pdf = st.text_input("Judul di PDF:", f"Laporan Keuangan {view_pilihan}")
     with col_pdf2:
-        st.write(" ") # Spasi agar sejajar
-        pdf_data = generate_pdf(df_display, judul_pdf, view_kategori)
-        st.download_button(
-            label=f"📥 Download PDF {view_kategori}",
-            data=pdf_data,
-            file_name=f"Laporan_{view_kategori}_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
+        st.write(" ")
+        pdf_file = generate_pdf(df_display, judul_pdf, view_pilihan)
+        st.download_button(label=f"📥 Download PDF {view_pilihan}", data=pdf_file, 
+                           file_name=f"Laporan_{view_pilihan}.pdf", mime="application/pdf")
 else:
-    st.warning(f"Belum ada transaksi di kategori {view_kategori}. Masukkan data dulu biar tombol cetak muncul!")
+    st.info(f"Dompet '{view_pilihan}' masih kosong. Belum ada transaksi.")
 
 st.divider()
 
-# Tabel Riwayat
-st.subheader(f"📜 Riwayat Transaksi {view_kategori}")
+# 5. TABEL RIWAYAT
+st.subheader(f"📜 Detail Transaksi: {view_pilihan}")
 if not df_display.empty:
-    # Header Tabel
     h = st.columns([1.5, 3, 1, 1, 1.5, 1.5, 0.8])
     for col, name in zip(h, ["Tanggal", "Keterangan", "Tipe", "Metode", "Jumlah", "Saldo", "Hapus"]):
         col.markdown(f"**{name}**")
     
-    # Baris Tabel (Data terbaru di atas)
     for i, r in df_display.iloc[::-1].iterrows():
         c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 3, 1, 1, 1.5, 1.5, 0.8])
-        c1.write(r["Tanggal"])
-        c2.write(r["Keterangan"])
-        c3.write(r["Tipe"])
-        c4.write(r["Metode"])
-        c5.write(f"{r['Jumlah']:,}")
-        c6.write(f"**{r['Saldo']:,}**")
-        if c7.button("🗑️", key=f"del_{i}_{view_kategori}"):
-            # Cari index asli di df_raw untuk dihapus
-            df_raw = df_raw.drop(i)
-            df_raw.to_excel(DB_FILE, index=False)
+        c1.write(r["Tanggal"]); c2.write(r["Keterangan"]); c3.write(r["Tipe"])
+        c4.write(r["Metode"]); c5.write(f"{r['Jumlah']:,}"); c6.write(f"**{r['Saldo']:,}**")
+        if c7.button("🗑️", key=f"del_{i}_{view_pilihan}"):
+            df_raw.drop(i).to_excel(DB_FILE, index=False)
             st.rerun()
